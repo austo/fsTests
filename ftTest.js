@@ -19,5 +19,5 @@ function listIteration(it) {
 }
 
 for (var i = 0; i < numIter; ++i) {
-  ft.readAsync(filename, listIteration(i));
+  ft.read(filename, listIteration(i));
 }

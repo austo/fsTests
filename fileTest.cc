@@ -4,10 +4,10 @@
 
 #include <node.h>
 #include <node_buffer.h>
-#include <assert.h>
+
 #include <cstring>
 #include <cstdio>
-#include <cstdlib>
+#include <assert.h>
 #include <string>
 
 using namespace v8;
@@ -35,7 +35,7 @@ struct ReaderBaton {
   uv_fs_t open_req;
   uv_fs_t read_req;
   uv_fs_t stat_req;
-  
+
   char *buf;
   size_t buflen;
 
@@ -119,7 +119,7 @@ on_read(uv_fs_t *req) {
 }
 
 Handle<Value>
-ReadAsync(const Arguments& args) {
+Read(const Arguments& args) {
   HandleScope scope;
   assert(args.Length() == 2);
 
@@ -145,8 +145,8 @@ void
 Init(Handle<Object> exports) {  
   bufferCtor = Persistent<Function>::New(Local<Function>::Cast(
     Context::GetCurrent()->Global()->Get(String::New("Buffer"))));
-  exports->Set(String::NewSymbol("readAsync"),
-    FunctionTemplate::New(ReadAsync)->GetFunction());
+  exports->Set(String::NewSymbol("read"),
+    FunctionTemplate::New(Read)->GetFunction());
   loop = uv_default_loop();
 }
 
