@@ -2,3 +2,4 @@
 node_modules/
 bigfile.txt
 build/
+cuts.cc

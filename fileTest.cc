@@ -5,41 +5,40 @@
 #include <node.h>
 #include <node_buffer.h>
 
-#include <cstring>
 #include <cstdio>
 #include <assert.h>
-#include <string>
 
 using namespace v8;
 using namespace std;
 
 uv_loop_t *loop;
-
-Persistent<Function> bufferCtor;
+static Persistent<String> oncomplete_sym;
 
 struct ReaderBaton {
   ReaderBaton(const char *p)
   : path(p) {
+    v8::HandleScope scope;
+    object = Persistent<Object>::New(Object::New());
     this->buf = NULL;
-    this->open_req.data = this;
-    this->read_req.data = this;
-    this->stat_req.data = this;
+    this->fsReq.data = this;    
   }
+
   ~ReaderBaton() {
     delete[] this->buf;
+    assert(!object.IsEmpty());
+    object.Dispose();
+    object.Clear();
   }
 
-  string path;
+  const char *path;
   int fd;
 
-  uv_fs_t open_req;
-  uv_fs_t read_req;
-  uv_fs_t stat_req;
+  uv_fs_t fsReq;  
 
   char *buf;
   size_t buflen;
 
-  Persistent<Function> callback;
+  Persistent<Object> object;
 };
 
 void on_open(uv_fs_t *req);
@@ -59,9 +58,8 @@ on_stat(uv_fs_t* req) {
   ReaderBaton *baton = static_cast<ReaderBaton *>(req->data);  
   baton->buflen = req->statbuf.st_size;
   baton->buf = new char[baton->buflen];
-  uv_fs_read(uv_default_loop(), &baton->read_req, baton->fd,
-    baton->buf, baton->buflen, -1, on_read);
-  
+  uv_fs_read(uv_default_loop(), &baton->fsReq, baton->fd,
+    baton->buf, baton->buflen, -1, on_read);  
 }
 
 void
@@ -75,78 +73,64 @@ on_open(uv_fs_t *req) {
 
   ReaderBaton *baton = static_cast<ReaderBaton *>(req->data);
   baton->fd = req->result;
-  uv_fs_fstat(uv_default_loop(), &baton->stat_req, baton->fd, on_stat);
+  uv_fs_fstat(uv_default_loop(), &baton->fsReq, baton->fd, on_stat);
 }
 
 void
 on_read(uv_fs_t *req) {
   uv_fs_req_cleanup(req);
 
-  if (req->result < 0) {
-    fprintf(stderr, "Read error.\n");
-    return;
-  }
-
+  HandleScope scope;
   ReaderBaton *baton = static_cast<ReaderBaton *>(req->data);
+  Handle<Value> argv[2];
 
-  if (static_cast<size_t>(req->result) == baton->buflen) {
+  if (req->result < 0) {
+    argv[0] = String::New("Unable to read file");
+    argv[1] = Null();
+  }
+  else if (static_cast<size_t>(req->result) == baton->buflen) {
     uv_fs_t close_req;
-    uv_fs_close(loop, &close_req, baton->open_req.result, NULL);
-    
-    HandleScope scope;
+    uv_fs_close(loop, &close_req, baton->fd, NULL);    
 
     // make buffer
-    node::Buffer *slowBuffer = node::Buffer::New(baton->buflen);
-    memcpy(node::Buffer::Data(slowBuffer), baton->buf, baton->buflen);
-
-    Handle<Value> constructorArgs[3] = {
-      slowBuffer->handle_,
-      v8::Integer::New(baton->buflen),
-      v8::Integer::New(0)
-    };
-
-    Local<Object> actualBuffer = bufferCtor->NewInstance(3, constructorArgs);
-
-    Handle<Value> argv[2] = {
-      Null(),
-      actualBuffer
-    };
-    baton->callback->Call(Context::GetCurrent()->Global(), 2, argv);
-    baton->callback.Dispose();
-    delete baton;
-    scope.Close(Undefined());
+    node::Buffer *buf = node::Buffer::New(baton->buf, baton->buflen);
+    
+    argv[0] = Null();
+    argv[1] = buf->handle_;
   }
+  else {
+    argv[0] = String::New("Unspecified error");
+    argv[1] = Null();
+  }
+
+  node::MakeCallback(baton->object, oncomplete_sym, 2, argv);
+  delete baton;  
 }
 
 Handle<Value>
 Read(const Arguments& args) {
   HandleScope scope;
-  assert(args.Length() == 2);
 
-  if (!args[1]->IsFunction()) {
-    return v8::ThrowException(
-      v8::Exception::TypeError(
-        v8::String::New("Last arg should be callback function")));
-  }
+  assert(args.Length() == 2);
+  assert(args[1]->IsFunction());
 
   Local<Value> strObj = args[0]->ToString();
   v8::String::Utf8Value path(strObj);
 
-  ReaderBaton *baton = new ReaderBaton(*path);  
-  baton->callback = Persistent<Function>::New(Local<Function>::Cast(args[1]));
+  ReaderBaton *baton = new ReaderBaton(*path);
+  baton->object->Set(oncomplete_sym, args[1]);
 
-  uv_fs_open(loop, &baton->open_req, baton->path.c_str(),
+  uv_fs_open(loop, &baton->fsReq, baton->path,
     O_RDONLY, 0, on_open);
 
-  return scope.Close(Undefined());
+  return Undefined();
 }
 
 void
 Init(Handle<Object> exports) {  
-  bufferCtor = Persistent<Function>::New(Local<Function>::Cast(
-    Context::GetCurrent()->Global()->Get(String::New("Buffer"))));
   exports->Set(String::NewSymbol("read"),
     FunctionTemplate::New(Read)->GetFunction());
+  oncomplete_sym = NODE_PSYMBOL("oncomplete");
   loop = uv_default_loop();
 }
 

@@ -5,6 +5,7 @@ var fs = require('fs'),
     path.resolve(__dirname, process.env['FILENAME']) :
     path.join(__dirname, 'bigfile.txt');
 
+var start;
 
 function readFile(fpath, callback) {
   fs.open(fpath, 'r', function (err, fd) {
@@ -35,10 +36,15 @@ function listIteration(it) {
     }
     if (typeof arguments[3] === 'number') {
       fs.close(arguments[3], null);
+      if (it === numIter - 1) {
+        var end = Date.now();
+        console.log('elapsed time: %dms', end - start);
+      }
     }
   };
 }
 
+start = Date.now();
 for (var i = 0; i < numIter; ++i) {
   readFile(filename, listIteration(i));
 }
