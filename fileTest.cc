@@ -15,11 +15,11 @@ using namespace std;
 uv_loop_t *loop;
 static Persistent<String> oncomplete_sym;
 
-class ReaderBaton : public node::ReqWrap <uv_fs_t> {
+class ReaderBaton : public node::ReqWrap<uv_fs_t> {
 public:
   ReaderBaton(const char *p)
   : path(p) {    
-    this->data_ = NULL; // unused in parent
+    this->data_ = NULL; // unused in base class
   }
 
   ~ReaderBaton() {
@@ -41,14 +41,13 @@ on_stat(uv_fs_t* req) {
 
   if (req->result < 0) {
     fprintf(stderr, "Stat error.\n");
-    uv_fs_req_cleanup(req);
     return;
   }
 
   ReaderBaton *baton = static_cast<ReaderBaton *>(req->data);  
   baton->buflen = req->statbuf.st_size;
   baton->data_ = new char[baton->buflen];
-  uv_fs_read(uv_default_loop(), &baton->req_, baton->fd,
+  uv_fs_read(loop, &baton->req_, baton->fd,
     baton->data_, baton->buflen, -1, on_read);  
 }
 
@@ -63,7 +62,7 @@ on_open(uv_fs_t *req) {
 
   ReaderBaton *baton = static_cast<ReaderBaton *>(req->data);
   baton->fd = req->result;
-  uv_fs_fstat(uv_default_loop(), &baton->req_, baton->fd, on_stat);
+  uv_fs_fstat(loop, &baton->req_, baton->fd, on_stat);
 }
 
 void

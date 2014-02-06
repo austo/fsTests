@@ -3,3 +3,6 @@ node_modules/
 bigfile.txt
 build/
 cuts.cc
+*.o
+*.log
+file_reader
