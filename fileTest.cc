@@ -4,6 +4,7 @@
 
 #include <node.h>
 #include <node_buffer.h>
+#include <req_wrap.h>
 
 #include <cstdio>
 #include <assert.h>
@@ -14,31 +15,20 @@ using namespace std;
 uv_loop_t *loop;
 static Persistent<String> oncomplete_sym;
 
-struct ReaderBaton {
+class ReaderBaton : public node::ReqWrap <uv_fs_t> {
+public:
   ReaderBaton(const char *p)
-  : path(p) {
-    v8::HandleScope scope;
-    object = Persistent<Object>::New(Object::New());
-    this->buf = NULL;
-    this->fsReq.data = this;    
+  : path(p) {    
+    this->data_ = NULL; // unused in parent
   }
 
   ~ReaderBaton() {
-    delete[] this->buf;
-    assert(!object.IsEmpty());
-    object.Dispose();
-    object.Clear();
+    delete[] static_cast<char *>(this->data_);
   }
 
-  const char *path;
   int fd;
-
-  uv_fs_t fsReq;  
-
-  char *buf;
   size_t buflen;
-
-  Persistent<Object> object;
+  const char *path;
 };
 
 void on_open(uv_fs_t *req);
@@ -57,9 +47,9 @@ on_stat(uv_fs_t* req) {
 
   ReaderBaton *baton = static_cast<ReaderBaton *>(req->data);  
   baton->buflen = req->statbuf.st_size;
-  baton->buf = new char[baton->buflen];
-  uv_fs_read(uv_default_loop(), &baton->fsReq, baton->fd,
-    baton->buf, baton->buflen, -1, on_read);  
+  baton->data_ = new char[baton->buflen];
+  uv_fs_read(uv_default_loop(), &baton->req_, baton->fd,
+    baton->data_, baton->buflen, -1, on_read);  
 }
 
 void
@@ -73,7 +63,7 @@ on_open(uv_fs_t *req) {
 
   ReaderBaton *baton = static_cast<ReaderBaton *>(req->data);
   baton->fd = req->result;
-  uv_fs_fstat(uv_default_loop(), &baton->fsReq, baton->fd, on_stat);
+  uv_fs_fstat(uv_default_loop(), &baton->req_, baton->fd, on_stat);
 }
 
 void
@@ -93,7 +83,8 @@ on_read(uv_fs_t *req) {
     uv_fs_close(loop, &close_req, baton->fd, NULL);    
 
     // make buffer
-    node::Buffer *buf = node::Buffer::New(baton->buf, baton->buflen);
+    node::Buffer *buf = node::Buffer::New(
+      static_cast<char *>(baton->data_), baton->buflen);
     
     argv[0] = Null();
     argv[1] = buf->handle_;
@@ -103,7 +94,7 @@ on_read(uv_fs_t *req) {
     argv[1] = Null();
   }
 
-  node::MakeCallback(baton->object, oncomplete_sym, 2, argv);
+  node::MakeCallback(baton->object_, oncomplete_sym, 2, argv);
   delete baton;  
 }
 
@@ -118,12 +109,13 @@ Read(const Arguments& args) {
   v8::String::Utf8Value path(strObj);
 
   ReaderBaton *baton = new ReaderBaton(*path);
-  baton->object->Set(oncomplete_sym, args[1]);
+  baton->object_->Set(oncomplete_sym, args[1]);
+  baton->Dispatched();
 
-  uv_fs_open(loop, &baton->fsReq, baton->path,
+  uv_fs_open(loop, &baton->req_, baton->path,
     O_RDONLY, 0, on_open);
 
-  return Undefined();
+  return scope.Close(baton->object_);
 }
 
 void
