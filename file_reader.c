@@ -1,8 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <fcntl.h>
-#include <unistd.h>
 #include <uv.h>
 
 // gcc file_reader.c -I/usr/local/include -L/usr/local/lib -luv -o file_reader
