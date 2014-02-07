@@ -5,6 +5,9 @@
 
 // gcc file_reader.c -I/usr/local/include -L/usr/local/lib -luv -o file_reader
 
+#define REHYDRATE_HELPER(r, h) uv_fs_req_cleanup(r);                          \
+  file_helper *h = (file_helper *) r->data
+
 uv_loop_t *loop;
 
 typedef struct {  
@@ -36,15 +39,15 @@ file_helper_dispose(file_helper *helper) {
 }
 
 void
-on_stat(uv_fs_t* req) {  
-  uv_fs_req_cleanup(req);
+on_stat(uv_fs_t* req) {   
+  REHYDRATE_HELPER(req, helper);
 
   if (req->result < 0) {
     fprintf(stderr, "Stat error.\n");
+    file_helper_dispose(helper);
     return;
   }
 
-  file_helper *helper = (file_helper *) req->data;
   helper->buflen = req->statbuf.st_size;
   helper->buf = malloc(helper->buflen);
   uv_fs_read(loop, &helper->req, helper->fd,
@@ -53,27 +56,26 @@ on_stat(uv_fs_t* req) {
 
 void
 on_open(uv_fs_t *req) {
-  uv_fs_req_cleanup(req);
+  REHYDRATE_HELPER(req, helper);
   
   if (req->result == -1) {
     fprintf(stderr, "error opening file.\n");
+    file_helper_dispose(helper);
     return;    
   }
 
-  file_helper *helper = (file_helper *) req->data;
   helper->fd = req->result;
   uv_fs_fstat(loop, &helper->req, helper->fd, on_stat);
 }
 
 void
 on_read(uv_fs_t *req) {
-  uv_fs_req_cleanup(req);
-  file_helper *helper = (file_helper *) req->data;
+  REHYDRATE_HELPER(req, helper);
 
   if (req->result < 0) {
     fprintf(stderr, "Read error.\n");    
   }
-  else if (req->result == helper->buflen) {    
+  else if ((size_t)req->result == helper->buflen) {    
     uv_fs_t close_req;
     uv_fs_close(loop, &close_req, helper->req.result, NULL);
     printf("length: %lu\n", helper->buflen);

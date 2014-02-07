@@ -2,6 +2,7 @@
 node_modules/
 bigfile.txt
 build/
+out/
 cuts.cc
 *.o
 *.log
